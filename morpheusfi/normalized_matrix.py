@@ -1,4 +1,4 @@
-# Copyright 2018 Side Li and Arun Kumar
+# Copyright 2019 Side Li, Lingjiao Chen and Arun Kumar
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -179,10 +179,10 @@ class NormalizedMatrix(matrix):
         return NotImplemented
 
     # Element-wise Scalar Operators
+    # Lazy evaluations
     def __add__(self, other):
         if isscalar(other):
             return self._copy(self.ent_table, self.att_table, b=other+self.b)
-            # return self._copy(self.ent_table + other, [t + other for t in self.att_table])
 
         return NotImplemented
 
@@ -537,9 +537,7 @@ class NormalizedMatrix(matrix):
                         u = np.zeros((r1.shape[0], ss.shape[1] * nw), dtype=float, order='C')
                         comp.group_left(ss.shape[0], ss.shape[1] * nw,
                                         np.ascontiguousarray(base.data_interaction_rr(ss, np.matrix(other).T)), k1, u)
-                        # rr += [np.matrix(base.data_interaction_rr(r1, u).sum(axis=0).reshape(nw, -1))]
                         if permute is None:
-                            # rr += [u]
                             rr += [np.matrix(base.data_interaction_rr(r1, u).sum(axis=0).reshape(nw, -1))]
                         else:
                             rr += [np.matrix(base.data_interaction_rr(r1, u).sum(axis=0)[permute].reshape(nw, -1))]
@@ -607,7 +605,10 @@ class NormalizedMatrix(matrix):
                 else:
                     res = np.zeros((ns, ns), dtype=float, order='C')
 
-                cross_r = [self._t_cross(t) for t in r]
+                if all(map(sp.issparse, r)):
+                    cross_r = [self._t_cross(t).toarray() for t in r]
+                else:
+                    cross_r = [self._t_cross(t) for t in r]
                 comp.expand_add(ns, len(k), k, cross_r, nr, res)
 
                 return res
@@ -629,9 +630,28 @@ class NormalizedMatrix(matrix):
                     p = self._cross(self.att_table[0], m)
                     s_part = self._cross(self.ent_table)
 
-                    res = sp.vstack((sp.hstack((s_part, p.T)), sp.hstack((p, diag_part))))
+                    res = sp.vstack((np.hstack((s_part, p.T)), sp.hstack((p, diag_part))))
                 else:
                     res = diag_part
+
+                # multi-table join
+                for i in range(1, len(k)):
+                    ps = []
+                    if ds > 0:
+                        m = np.zeros((nr[i], ds))
+                        comp.group_left(ns, ds, s, k[i], m)
+                        ps += [self._cross(self.att_table[i], m)]
+
+                    # cp (KRi)
+                    size = self.att_table[i].size
+                    data = np.empty(size)
+                    comp.multiply_sparse(size, self.att_table[i].row, self.att_table[i].data, np.sqrt(v[i]), data)
+                    diag_part = self._cross(sp.coo_matrix((data, (self.att_table[i].row, self.att_table[i].col))))
+
+                    for j in range(i):
+                        ps += [r[i].tocsr()[k[i]].T.dot(r[j].tocsr()[k[j]])]
+
+                    res = sp.vstack((sp.hstack((res, sp.vstack([p.T for p in ps]))), sp.hstack(ps + [diag_part])))
             else:
                 s = np.ascontiguousarray(s)
                 if self.second_order:
@@ -684,6 +704,36 @@ class NormalizedMatrix(matrix):
                         res[ds:, :ds] = self._cross(self.att_table[0], m)
                         res[:ds, ds:] = res[ds:, :ds].T
                         res[:ds, :ds] = self._cross(self.ent_table)
+
+                    # multi-table join
+                    for i in range(1, len(self.kfkds)):
+                        if ds > 0:
+                            m = np.zeros((nr[i], ds))
+                            comp.group_left(ns, ds, s, k[i], m)
+                            ni1 = ds + sum([t.shape[1] for t in self.att_table[:i]])
+                            ni2 = ni1 + self.att_table[i].shape[1]
+                            res[ni1:ni2, :ds] = self._cross(self.att_table[i], m)
+                            res[:ds, ni1:ni2] = res[ni1:ni2, :ds].T
+
+                        # cp(KRi)
+                        data = np.empty(self.att_table[i].shape, order='C')
+                        comp.multiply(self.att_table[i].shape[0], self.att_table[i].shape[1], self.att_table[i], v[i],
+                                      data)
+                        res[ni1:ni2, ni1:ni2] = self._cross(data)
+
+                        for j in range(i):
+                            dj1 = ds + sum([t.shape[1] for t in self.att_table[:j]])
+                            dj2 = dj1 + self.att_table[j].shape[1]
+
+                            if (ns * 1.0 / nr[j]) > (1 + nr[j] * 1.0 / dr[j]):
+                                m = np.zeros((nr[i], nr[j]), order='C')
+                                comp.group_k_by_k(nr[i], nr[j], ns, k[i], k[j], m)
+
+                                res[ni1:ni2, dj1:dj2] = r[i].T.dot(m.T.dot(r[j]))
+                                res[dj1:dj2, ni1:ni2] = res[ni1:ni2, dj1:dj2].T
+                            else:
+                                res[ni1:ni2, dj1:dj2] = r[i][k[i]].T.dot(r[j][k[j]])
+                                res[dj1:dj2, ni1:ni2] = res[ni1:ni2, dj1:dj2].T
 
             if self.a != 1.0:
                 res = res * np.power(self.a, 2)

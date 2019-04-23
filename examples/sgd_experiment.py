@@ -1,9 +1,20 @@
+# Copyright 2019 Side Li, Lingjiao and Arun Kumar
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import numpy as np
 from scipy import sparse
 from sklearn.metrics import accuracy_score
-from morpheus.normalized_matrix import NormalizedMatrix
-from morpheus.base import data_interaction_rr, data_interaction
-
+from morpheusfi.normalized_matrix import NormalizedMatrix
+from morpheusfi.torch_matrix import SparseMM
+from morpheusfi.torch_matrix import NormalizedMM
 import os
 import torch
 import torch.nn as nn
@@ -14,56 +25,6 @@ import math
 import pandas as pd
 import time
 
-class SparseMM(torch.autograd.Function):
-    """
-    Sparse x dense matrix multiplication with autograd support.
-    Implementation by Soumith Chintala:
-    https://discuss.pytorch.org/t/
-    does-pytorch-support-autograd-on-sparse-matrix/6156/7
-    """
-    def __init__(self, sparse):
-        super(SparseMM, self).__init__()
-        self.sparse = sparse
-
-    def forward(self, dense):
-        # res = self.sparse * dense.data.numpy()
-        # return torch.DoubleTensor(res)
-        return torch.mm(self.sparse, dense)
-
-    def backward(self, grad_output):
-        # res = self.sparse.T * grad_output.data.numpy()
-        # grad_input = torch.DoubleTensor(res)
-        # return grad_input
-        grad_input = None
-        if self.needs_input_grad[0]:
-            grad_input = torch.mm(self.sparse.t(), grad_output)
-        return grad_input
-
-class NormalizedMM(torch.autograd.Function):
-    """
-    Sparse x dense matrix multiplication with autograd support.
-    Implementation by Soumith Chintala:
-    https://discuss.pytorch.org/t/
-    does-pytorch-support-autograd-on-sparse-matrix/6156/7
-    """
-
-    def __init__(self, sparse):
-        super(NormalizedMM, self).__init__()
-        self.sparse = sparse
-
-    def forward(self, dense):
-        t = time.time()
-        res = self.sparse.dot(dense.data.numpy())
-        print 'forward takes', time.time() - t
-        return torch.DoubleTensor(res)
-
-    def backward(self, grad_output):
-        t = time.time()
-        res = self.sparse.T.dot(grad_output.data.numpy())
-        grad_input = torch.DoubleTensor(res)
-        print 'backward takes', time.time() - t
-        return grad_input
-
 class LogisticRegression(nn.Module):
     def __init__(self, input_size, num_classes):
         super(LogisticRegression, self).__init__()
@@ -71,17 +32,13 @@ class LogisticRegression(nn.Module):
         self.reset_parameters(math.sqrt(6 / (input_size + num_classes)))
 
     def reset_parameters(self, limit):
-        # stdv = 1. / math.sqrt(self.weight.size(1))
         self.weight.data.uniform_(-limit, limit)
-        # self.weight.data.uniform_(-stdv, stdv)
-        # self.bias.data.fill_(0)
 
     def forward(self, x):
         if sparse.issparse(x) or isinstance(x, NormalizedMatrix):
             out = F.sigmoid(NormalizedMM(x)(self.weight))
         else:
             out = F.sigmoid(SparseMM(x)(self.weight))
-        # out = F.sigmoid(torch.add(SparseMM(x)(self.weight), self.bias))
         return out
 
 class LinearRegression(nn.Module):
@@ -92,7 +49,6 @@ class LinearRegression(nn.Module):
         self.reset_parameters(math.sqrt(6 / (input_size + num_classes)))
 
     def reset_parameters(self, limit):
-        # stdv = 1. / math.sqrt(self.weight.size(1))
         self.weight.data.uniform_(-limit, limit)
         self.bias.data.fill_(0)
 

@@ -1,4 +1,4 @@
-# Copyright 2018 Side Li and Arun Kumar
+# Copyright 2019 Side Li, Lingjiao and Arun Kumar
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -9,16 +9,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-
 from setuptools import setup, find_packages, Extension
 import numpy
 
-module = Extension('comp', sources=['morpheus/comp.cpp'], include_dirs=[numpy.get_include()])
+module = Extension('comp', sources=['morpheusfi/comp.cpp'], include_dirs=[numpy.get_include()])
 
 setup(
-    name='MorpheusFI',
-    version='1.0',
+    name='morpheusfi',
+    version='1.0.0',
     packages=find_packages(),
     url='',
     license='',
