@@ -10,19 +10,16 @@
 # limitations under the License.
 
 
-from distutils.core import setup, Extension
+
+from setuptools import setup, find_packages, Extension
 import numpy
 
-module = Extension('comp',
-                   sources=['morpheus/comp.cpp'],
-                   # extra_compile_args=['-std=c++11'],
-                   include_dirs=[numpy.get_include()])
+module = Extension('comp', sources=['morpheus/comp.cpp'], include_dirs=[numpy.get_include()])
 
 setup(
     name='MorpheusFI',
-    version='',
-    packages=['', 'algorithms'],
-    package_dir={'': 'morpheus'},
+    version='1.0',
+    packages=find_packages(),
     url='',
     license='',
     author='Side Li, Lingjiao Chen, Arun Kumar',
